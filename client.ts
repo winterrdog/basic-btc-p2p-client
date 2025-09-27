@@ -9,10 +9,9 @@ main().catch((err) => console.error("unknown error occured", err));
 
 async function main() {
   const magicBytes = Buffer.alloc(4);
-  // magicBytes.writeUInt32LE(0x0709110b);
-  magicBytes.writeUInt32LE(0xdab5bffa);
+  magicBytes.writeUInt32LE(0x0709110b); // testnet magic number
 
-  const PORT = 18_444;
+  const PORT = 18_333; // testnet port number
   const socket = connToBtcNode();
   await waitForSocketReadiness();
 
@@ -25,18 +24,29 @@ async function main() {
   await readVersionMsg();
 
   // 3. receive version ack msg (verack) from remote peer BTC node
-  console.log(
-    "+ waiting to receive version ack message from remote peer BTC node"
-  );
-  await Promise.race([
-    readVerAckMsg(),
-    new Promise((_, reject) =>
-      setTimeout(
-        () => reject(new Error("Timeout (10s) waiting for verack")),
-        10_000
-      )
-    ),
-  ]);
+  try {
+    console.log(
+      "+ waiting to receive version ack message from remote peer BTC node"
+    );
+
+    await Promise.race([
+      readVerAckMsg(),
+      new Promise(function (_, reject) {
+        return setTimeout(function () {
+          return reject(
+            new Error(
+              `Timed out (10s) while waiting for 'verack' message. 
+
+NOTE: Probably the peer is running a bitcoin core version that does NOT acknowledge our version message thus leading to a partial handshake. This is OK, do not fret.
+`
+            )
+          );
+        }, 10000);
+      }),
+    ]);
+  } catch (e: any) {
+    console.error(e.message);
+  }
 
   // 4. send verack immediately after receiving version
   console.log("+ sending my version ack message to remote peer BTC node");
