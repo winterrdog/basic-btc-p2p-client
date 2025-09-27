@@ -44,13 +44,13 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
         }, 10000);
       }),
     ]);
+
+    // 4. send verack immediately after receiving version
+    console.log("+ sending my version ack message to remote peer BTC node");
+    await sendMyVerAckMsg();
   } catch (e: any) {
     console.error(e.message);
   }
-
-  // 4. send verack immediately after receiving version
-  console.log("+ sending my version ack message to remote peer BTC node");
-  await sendMyVerAckMsg();
 
   console.log("+ Handshake complete! 🎉");
 
