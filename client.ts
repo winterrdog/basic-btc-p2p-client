@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { createConnection } from "node:net";
+import { createHash, randomBytes } from "node:crypto";
 
 main().catch((err) => console.error("unknown error occured", err));
 
@@ -8,8 +8,11 @@ main().catch((err) => console.error("unknown error occured", err));
 // ===============
 
 async function main() {
-  // const PORT = 18_332;
-  const PORT = 8_333;
+  const magicBytes = Buffer.alloc(4);
+  // magicBytes.writeUInt32LE(0x0709110b);
+  magicBytes.writeUInt32LE(0xdab5bffa);
+
+  const PORT = 18_444;
   const socket = connToBtcNode();
   await waitForSocketReadiness();
 
@@ -21,20 +24,23 @@ async function main() {
   console.log("+ waiting to receive version message from remote peer BTC node");
   await readVersionMsg();
 
-  // 3. send verack immediately after receiving version
-  console.log("+ sending my version ack message to remote peer BTC node");
-  await sendMyVerAckMsg();
-
-  // 4. receive version ack msg (verack) from remote peer BTC node
+  // 3. receive version ack msg (verack) from remote peer BTC node
   console.log(
     "+ waiting to receive version ack message from remote peer BTC node"
   );
   await Promise.race([
     readVerAckMsg(),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout waiting for verack")), 10000)
+      setTimeout(
+        () => reject(new Error("Timeout (10s) waiting for verack")),
+        10_000
+      )
     ),
   ]);
+
+  // 4. send verack immediately after receiving version
+  console.log("+ sending my version ack message to remote peer BTC node");
+  await sendMyVerAckMsg();
 
   console.log("+ Handshake complete! 🎉");
 
@@ -153,29 +159,7 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
     });
   }
 
-  function convertToHex(n: number): string {
-    return n.toString(16);
-  }
-
-  function formatDataSize(data: string, size: number): string {
-    return data.padStart(size * 2, "0");
-  }
-
-  function reverseBytes(bytes: string): Buffer {
-    return Buffer.from(bytes, "hex").reverse();
-  }
-
-  function asciiToHex(s: string): string {
-    return Array.from(s)
-      .map(function (char) {
-        //convert each char -> char code -> hex (always 2 digits)
-        return convertToHex(char.charCodeAt(0)).padStart(2, "0");
-      })
-      .join("")
-      .padEnd(24, "0"); //pad right with zeros to 24 hex chars (12 bytes)
-  }
-
-  function checksum(data: Buffer): Buffer {
+  function doubleSha256(data: Buffer): Buffer {
     // double hash in order to get checksum
     const h1 = createHash("sha256").update(data).digest();
     const h2 = createHash("sha256").update(h1).digest();
@@ -192,17 +176,20 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
     services.writeBigUInt64LE(BigInt(0));
 
     const time = Buffer.alloc(8);
-    time.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)));
+    const secsEpoch = Math.floor(Date.now() / 1_000);
+    time.writeBigInt64LE(BigInt(secsEpoch));
 
     // addr for receiver
     const remoteServices = Buffer.alloc(8);
-    const remotePort = Buffer.alloc(2);
     remoteServices.writeBigUInt64LE(0n);
+
+    const remotePort = Buffer.alloc(2);
     remotePort.writeUInt16BE(PORT);
+
     const addrRecv = Buffer.concat([
       remoteServices,
-      Buffer.from("00000000000000000000ffffa27845b6", "hex"),
-      // Buffer.from("00000000000000000000ffff7f000001", "hex"),
+      // Buffer.from("00000000000000000000ffffa27845b6", "hex"),
+      Buffer.from("00000000000000000000ffff7f000001", "hex"),
       remotePort,
     ]);
 
@@ -216,18 +203,11 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
 
     const userAgent = Buffer.from("00", "hex");
 
-    // const startHeight = Buffer.alloc(4);
-    // startHeight.writeInt32LE(500);
+    const nonce = randomBytes(8);
+    const lastBlockRecvd = Buffer.alloc(4);
+    lastBlockRecvd.writeUInt32LE(0);
 
-    const nonce = Buffer.alloc(8);
-    nonce.writeBigUInt64LE(
-      BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER))
-    );
-
-    const lastBlock = Buffer.alloc(4);
-    lastBlock.writeUInt32LE(0);
-
-    const relay = Buffer.from([0x01]);
+    const relay = Buffer.from([0x0]);
 
     // be careful with the ordering too when combining pieces of data
     const payload = Buffer.concat([
@@ -238,8 +218,7 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
       addrSender,
       nonce,
       userAgent,
-      lastBlock,
-      // startHeight,
+      lastBlockRecvd,
       relay,
     ]);
 
@@ -247,16 +226,13 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
   }
 
   function genVersionMsgHdr(payload: Buffer) {
-    // const magicBytes = Buffer.alloc(4);
-    // magicBytes.writeUInt32LE(0x0709110b);
-    const magicBytes = Buffer.from("f9beb4d9", "hex");
-
-    const cmd = Buffer.from(asciiToHex("version"), "hex");
+    const cmd = Buffer.alloc(12);
+    cmd.write("version", "ascii");
 
     const size = Buffer.alloc(4);
     size.writeUInt32LE(payload.length);
 
-    const chkSum = checksum(payload);
+    const chkSum = doubleSha256(payload);
 
     // be careful with the ordering too when combining pieces of data
     const header = Buffer.concat([magicBytes, cmd, size, chkSum]);
@@ -276,16 +252,13 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
   }
 
   function genVersionAckMsgHdr(payload: Buffer) {
-    // const magicBytes = Buffer.alloc(4);
-    // magicBytes.writeUInt32LE(0x0709110b);
-    const magicBytes = Buffer.from("f9beb4d9", "hex");
-
-    const cmd = Buffer.from(asciiToHex("verack"), "hex");
+    const cmd = Buffer.alloc(12);
+    cmd.write("verack", "ascii");
 
     const size = Buffer.alloc(4);
     size.writeUInt32LE(payload.length);
 
-    const chkSum = checksum(payload);
+    const chkSum = doubleSha256(payload);
 
     //     console.log(`
     // VERSION ACK:
@@ -308,21 +281,16 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
 
   function asyncSockWrite(data: Buffer) {
     return new Promise<void>(function (resolve, reject) {
-      socket.write(data, function (err) {
-        return err ? reject(err) : resolve();
-      });
+      socket.write(data, (err) => (err ? reject(err) : resolve()));
     });
   }
 
   function connToBtcNode() {
-    const ip = "162.120.69.182"; // my local node
-    // const ip = "127.0.0.1"; // my local node
-    const socket = createConnection(
-      { port: PORT, host: ip, family: 4 },
-      function onConnection() {
-        console.log(`+ connected sucessfuly to btc node at, ${ip}:${PORT}`);
-      }
-    );
+    // const ip = "162.120.69.182"; // my local node
+    const ip = "127.0.0.1"; // my local node
+    const socket = createConnection({ port: PORT, host: ip, family: 4 }, () => {
+      console.log(`+ connected sucessfully to btc node at: ${ip}:${PORT}`);
+    });
 
     socket.on("error", (err) => {
       console.error("Socket error:", err);
@@ -336,9 +304,7 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
 
   function waitForSocketReadiness() {
     return new Promise<void>(function (resolve) {
-      socket.once("ready", function () {
-        resolve();
-      });
+      socket.once("ready", () => resolve());
     });
   }
 }
