@@ -7,9 +7,17 @@ main().catch((err) => console.error("unknown error occured", err));
 // implementation
 // ===============
 
+interface BtcProtocolMsg {
+  magicBytes: Buffer;
+  cmd: Buffer;
+  size: number;
+  checksum: Buffer;
+  payload: Buffer;
+}
+
 async function main() {
-  const magicBytes = Buffer.alloc(4);
-  magicBytes.writeUInt32LE(0x0709110b); // testnet magic number
+  const MAGIC_BYTES = Buffer.alloc(4);
+  MAGIC_BYTES.writeUInt32LE(0x0709110b); // testnet magic number
 
   const PORT = 18_333; // testnet port number
   const socket = connToBtcNode();
@@ -35,13 +43,14 @@ async function main() {
         return setTimeout(function () {
           return reject(
             new Error(
-              `Timed out (10s) while waiting for 'verack' message. 
+              `
+Timed out (10s) while waiting for 'verack' message. 
 
 NOTE: Probably the peer is running a bitcoin core version that does NOT acknowledge our version message thus leading to a partial handshake. This is OK, do not fret.
 `
             )
           );
-        }, 10000);
+        }, 10_000);
       }),
     ]);
 
@@ -52,7 +61,22 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     console.error(e.message);
   }
 
-  console.log("+ Handshake complete! 🎉");
+  console.log("+ handshake complete! 🎉");
+
+  // keep reading msgs from remote peer
+  console.log("+ waiting on more msgs from peer...");
+  while (1) {
+    // keep getting bytes from socket
+    let msg: BtcProtocolMsg;
+
+    while (1) {
+      msg = await parseMsgFromRemotePeer();
+      if (msg.magicBytes.equals(MAGIC_BYTES)) {
+        logBtcMsg(msg);
+        break;
+      }
+    }
+  }
 
   // =======
   // HELPERS
@@ -64,48 +88,43 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
   }
 
   async function readVerAckMsg() {
-    const { magicBytes, cmd, checksum, size, payload } = await readBtcNodeMsg();
-
-    console.log(`
-VERSION ACK MSG HEADER:
-magic bytes: ${magicBytes.toString("hex")},
-command: ${cmd.toString("ascii")},
-size: ${size},
-checksum: ${checksum.toString("hex")}
-      `);
-
-    console.log(`
-VERSION ACK MSG PAYLOAD:
-payload: ${!!size ? payload.toString("hex") : "none"})}
-      `);
+    const msg = await parseMsgFromRemotePeer();
+    console.log("> VERSION ACK MSG:");
+    logBtcMsg(msg);
   }
 
   async function readVersionMsg() {
-    const { magicBytes, cmd, checksum, size, payload } = await readBtcNodeMsg();
+    var msg = await parseMsgFromRemotePeer();
+    console.log("> VERSION MSG HEADER:");
+    logBtcMsg(msg);
+  }
 
-    console.log(`
-> VERSION MSG HEADER:
-> magic bytes: ${magicBytes.toString("hex")},
+  function logBtcMsg(msg: {
+    magicBytes: Buffer;
+    cmd: Buffer;
+    size: number;
+    checksum: Buffer;
+    payload: Buffer;
+  }) {
+    const { magicBytes, cmd, checksum, payload, size } = msg;
+
+    console.log(`> magic bytes: ${magicBytes.toString("hex")},
 > command: ${cmd.toString("ascii")},
-> size: ${size},
+> size: ${size} bytes,
 > checksum: ${checksum.toString("hex")}
-      `);
-
-    console.log(`
-> VERSION MSG PAYLOAD:
-> payload: ${payload.toString("hex")}
+> payload: ${!!size ? payload.toString("hex") : "none"}
       `);
   }
 
-  async function readBtcNodeMsg() {
-    // read header
-    const magicBytes = await readNBytes(4);
-    const cmd = await readNBytes(12);
-    const size = (await readNBytes(4)).readUint32LE(0);
-    const checksum = await readNBytes(4);
+  async function parseMsgFromRemotePeer(): Promise<BtcProtocolMsg> {
+    // header
+    var magicBytes = await readNBytes(4);
+    var cmd = await readNBytes(12);
+    var size = (await readNBytes(4)).readUint32LE(0);
+    var checksum = await readNBytes(4);
 
-    // read payload
-    const payload = await readNBytes(size);
+    // payload
+    var payload = await readNBytes(size);
 
     return { magicBytes, cmd, size, checksum, payload };
   }
@@ -245,7 +264,7 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
     const chkSum = doubleSha256(payload);
 
     // be careful with the ordering too when combining pieces of data
-    const header = Buffer.concat([magicBytes, cmd, size, chkSum]);
+    const header = Buffer.concat([MAGIC_BYTES, cmd, size, chkSum]);
     return header;
   }
 
@@ -279,7 +298,7 @@ payload: ${!!size ? payload.toString("hex") : "none"})}
     // payload: ${payload.toString("hex")}`);
 
     // be careful with the ordering too when combining pieces of data
-    const header = Buffer.concat([magicBytes, cmd, size, chkSum]);
+    const header = Buffer.concat([MAGIC_BYTES, cmd, size, chkSum]);
     return header;
   }
 
