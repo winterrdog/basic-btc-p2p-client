@@ -1,3 +1,13 @@
+// NOTE:
+// I could have used UInt8Array instead of Buffer everywhere.
+// But Buffer has some nice methods like .readUInt32LE() that makes
+// reading data from a stream easier.
+
+// Also, Buffer is a subclass of UInt8Array soooooo... it should be fine. But
+// I also happen to be more familiar with Buffer than UInt8Array so i ended up using
+// Buffer everywhere, cuz why not!!
+// see: https://nodejs.org/api/buffer.html#buffer_class_buffer
+
 import { createConnection } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 
@@ -324,7 +334,7 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     });
 
     socket.on("error", (err) => {
-      console.error("Socket error:", err);
+      console.error("A socket error:", err.stack || err.message);
     });
     socket.on("close", () => {
       console.log("Socket closed by remote peer");
