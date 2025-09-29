@@ -43,7 +43,7 @@ async function main() {
 
   // 2. receive version msg from remote peer BTC node
   console.log("+ waiting to receive version message from remote peer BTC node");
-  await readVersionMsg();
+  await recvVersionMsg();
 
   // 3. send verack immediately after receiving version (don't wait for their verack)
   console.log("+ sending my version ack message to remote peer BTC node");
@@ -53,7 +53,7 @@ async function main() {
   console.log(
     "+ waiting to receive version ack message from remote peer BTC node"
   );
-  await awaitVersionAckOrTimeout();
+  await recvVersionAckOrTimeout();
 
   console.log("+ handshake complete! 🎉");
 
@@ -119,7 +119,7 @@ async function main() {
       await asyncSockWrite(Buffer.concat([header, payload]));
       console.log("< sent back 'pong' msg\n");
     } else {
-      console.log(`+ received unhandled message: '${command}'`);
+      console.log(`> received unhandled message: '${command}'`);
     }
   }
 
@@ -128,22 +128,22 @@ async function main() {
     await asyncSockWrite(msg);
   }
 
-  async function readVerAckMsg() {
+  async function recvVerAckMsg() {
     const msg = await parseMsgFromRemotePeer();
     console.log("> VERSION ACK MSG:");
     return msg;
   }
 
-  async function readVersionMsg() {
+  async function recvVersionMsg() {
     var msg = await parseMsgFromRemotePeer();
     console.log("> VERSION MSG HEADER:");
     logBtcMsg(msg);
   }
 
-  async function awaitVersionAckOrTimeout() {
+  async function recvVersionAckOrTimeout() {
     try {
       const verackMsg = await Promise.race([
-        readVerAckMsg(),
+        recvVerAckMsg(),
         new Promise<BtcProtocolMsg>(function (_, reject): void {
           setTimeout(function (): void {
             return reject(
