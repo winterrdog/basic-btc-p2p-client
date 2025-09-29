@@ -27,9 +27,6 @@ interface BtcProtocolMsg {
 
 type Network = "mainnet" | "testnet" | "regtest";
 
-// todo: try out testnet too
-// todo: try out regtest too
-
 async function main() {
   const CONFIG = createGlobalConfig();
   const PORT = CONFIG.port[CONFIG.network];
@@ -53,29 +50,10 @@ async function main() {
   await sendMyVerAckMsg();
 
   // 4. try to receive their verack, but don't block if it doesn't come
-  try {
-    console.log(
-      "+ waiting to receive version ack message from remote peer BTC node"
-    );
-
-    const verackMsg = await Promise.race([
-      readVerAckMsg(),
-      new Promise<BtcProtocolMsg>((_, reject) => {
-        setTimeout(
-          () =>
-            reject(
-              new Error(`verack read timeout (${CONFIG.timeouts.verack} ms)`)
-            ),
-          CONFIG.timeouts.verack
-        );
-      }),
-    ]);
-
-    console.log("> VERSION ACK MSG:");
-    logBtcMsg(verackMsg);
-  } catch (e: any) {
-    console.log("+ verack not received within timeout, continuing anyway...");
-  }
+  console.log(
+    "+ waiting to receive version ack message from remote peer BTC node"
+  );
+  await awaitVersionAckOrTimeout();
 
   console.log("+ handshake complete! 🎉");
 
@@ -158,6 +136,26 @@ async function main() {
     var msg = await parseMsgFromRemotePeer();
     console.log("> VERSION MSG HEADER:");
     logBtcMsg(msg);
+  }
+
+  async function awaitVersionAckOrTimeout() {
+    try {
+      const verackMsg = await Promise.race([
+        readVerAckMsg(),
+        new Promise<BtcProtocolMsg>(function (_, reject): void {
+          setTimeout(function (): void {
+            return reject(
+              new Error(`verack read timeout (${CONFIG.timeouts.verack} ms)`)
+            );
+          }, CONFIG.timeouts.verack);
+        }),
+      ]);
+
+      console.log("> VERSION ACK MSG:");
+      logBtcMsg(verackMsg);
+    } catch (e: any) {
+      console.log("+ verack not received within timeout, continuing anyway...");
+    }
   }
 
   function logBtcMsg(msg: {
@@ -396,6 +394,10 @@ async function main() {
       remote: {
         ip: "162.120.69.182",
         ipv6Hex: "00000000000000000000ffff2e13894a", // ipv4-mapped ipv6 address
+
+        // for regtest and testnet
+        // ip: "127.0.0.1",
+        // ipv6Hex: "00000000000000000000ffff7f000001", // ipv4-mapped ipv6 address
       },
 
       // local node config
