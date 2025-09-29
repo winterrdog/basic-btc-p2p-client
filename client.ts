@@ -57,47 +57,11 @@ async function main() {
 
   console.log("+ handshake complete! 🎉");
 
-  // keep reading msgs from remote peer
+  // 5. keep reading msgs from remote peer
   console.log("+ waiting on more msgs from peer...");
-  let msg: BtcProtocolMsg | null = null;
+  await handleIncomingMessages();
 
-  do {
-    // keep getting bytes from socket
-    msg = null;
-
-    while (1) {
-      msg = await parseMsgFromRemotePeer();
-      if (areBuffersEqual(msg.magicBytes, MAGIC_BYTES)) {
-        logBtcMsg(msg);
-
-        const command = getCommandString(msg.cmd);
-        if (command === "inv") {
-          console.log("+ received 'inv' msg");
-          // respond to 'inv' cmds
-          // send back 'getdata' msgs to get blocks. use the same payload as that of 'inv'
-          // in order to get EVERYTHING there is.
-          const payload = msg.payload;
-          const header = createBtcMsgHeader("getdata", payload);
-
-          // be careful with the ordering too when combining pieces of data
-          const getdataMsg = Buffer.concat([header, payload]);
-          await asyncSockWrite(getdataMsg);
-
-          console.log("+ sent back 'getdata' msg\n");
-        } else if (command === "ping") {
-          console.log("+ received 'ping' msg");
-          // send back a 'pong' with the same payload as the 'ping'
-          const payload = msg.payload;
-          const header = createBtcMsgHeader("pong", payload);
-          await asyncSockWrite(Buffer.concat([header, payload]));
-
-          console.log("+ sent back 'pong' msg\n");
-        }
-
-        break;
-      }
-    }
-  } while (1);
+  return;
 
   // =======
   // HELPERS
@@ -119,6 +83,44 @@ async function main() {
     // be careful with the ordering too when combining pieces of data
     const header = Buffer.concat([MAGIC_BYTES, cmd, size, chkSum]);
     return header;
+  }
+
+  async function handleIncomingMessages() {
+    for (;;) {
+      const msg = await parseMsgFromRemotePeer();
+
+      if (!areBuffersEqual(msg.magicBytes, MAGIC_BYTES)) {
+        console.log("> received message with invalid magic bytes, skipping");
+      } else {
+        logBtcMsg(msg);
+
+        const command = getCommandString(msg.cmd);
+        await processMessage(command, msg.payload);
+      }
+    }
+  }
+
+  async function processMessage(command: string, payload: Buffer) {
+    if (command === "inv") {
+      console.log("> received 'inv' msg");
+
+      // respond to 'inv' cmds
+      // send back 'getdata' msgs to get blocks. use the same payload as that of 'inv'
+      // in order to get EVERYTHING there is.
+
+      const header = createBtcMsgHeader("getdata", payload);
+      const getdataMsg = Buffer.concat([header, payload]);
+      await asyncSockWrite(getdataMsg);
+      console.log("< sent back 'getdata' msg\n");
+    } else if (command === "ping") {
+      console.log("> received 'ping' msg");
+      // send back a 'pong' with the same payload as the 'ping'
+      const header = createBtcMsgHeader("pong", payload);
+      await asyncSockWrite(Buffer.concat([header, payload]));
+      console.log("< sent back 'pong' msg\n");
+    } else {
+      console.log(`+ received unhandled message: '${command}'`);
+    }
   }
 
   async function sendMyVerAckMsg() {
