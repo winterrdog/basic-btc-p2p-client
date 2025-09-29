@@ -27,9 +27,16 @@ interface BtcProtocolMsg {
 
 async function main() {
   const MAGIC_BYTES = Buffer.alloc(4);
-  MAGIC_BYTES.writeUInt32LE(0x0709110b); // testnet magic number
+  MAGIC_BYTES.writeUInt32LE(0xd9b4bef9); // mainnet magic number
 
-  const PORT = 18_333; // testnet port number
+  // MAGIC_BYTES.writeUInt32LE(0xDAB5BFFA); // regtest magic number
+  // MAGIC_BYTES.writeUInt32LE(0x0709110b); // testnet magic number
+
+  const PORT = 8333; // mainnet port number
+
+  // const PORT = 18_444; // regtest port number
+  // const PORT = 18_333; // testnet port number
+
   const socket = connToBtcNode();
   await waitForSocketReadiness();
 
@@ -41,34 +48,27 @@ async function main() {
   console.log("+ waiting to receive version message from remote peer BTC node");
   await readVersionMsg();
 
-  // 3. receive version ack msg (verack) from remote peer BTC node
+  // 3. send verack immediately after receiving version (don't wait for their verack)
+  console.log("+ sending my version ack message to remote peer BTC node");
+  await sendMyVerAckMsg();
+
+  // 4. try to receive their verack, but don't block if it doesn't come
   try {
     console.log(
       "+ waiting to receive version ack message from remote peer BTC node"
     );
 
-    await Promise.race([
+    const verackMsg = await Promise.race([
       readVerAckMsg(),
-      new Promise(function (_, reject) {
-        return setTimeout(function () {
-          return reject(
-            new Error(
-              `
-Timed out (10s) while waiting for 'verack' message. 
-
-NOTE: Probably the peer is running a bitcoin core version that does NOT acknowledge our version message thus leading to a partial handshake. This is OK, do not fret.
-`
-            )
-          );
-        }, 10_000);
+      new Promise<BtcProtocolMsg>((_, reject) => {
+        setTimeout(() => reject(new Error("verack timeout")), 5_000);
       }),
     ]);
 
-    // 4. send verack immediately after receiving version
-    console.log("+ sending my version ack message to remote peer BTC node");
-    await sendMyVerAckMsg();
+    console.log("> VERSION ACK MSG:");
+    logBtcMsg(verackMsg);
   } catch (e: any) {
-    console.error(e.message);
+    console.log("+ verack not received within timeout, continuing anyway...");
   }
 
   console.log("+ handshake complete! 🎉");
@@ -86,7 +86,9 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
       if (areBuffersEqual(msg.magicBytes, MAGIC_BYTES)) {
         logBtcMsg(msg);
 
-        if (areBuffersEqual(msg.cmd, Buffer.from("inv"))) {
+        const command = getCommandString(msg.cmd);
+        if (command === "inv") {
+          console.log("+ received 'inv' msg");
           // respond to 'inv' cmds
           // send back 'getdata' msgs to get blocks. use the same payload as that of 'inv'
           // in order to get EVERYTHING there is.
@@ -96,11 +98,16 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
           // be careful with the ordering too when combining pieces of data
           const getdataMsg = Buffer.concat([header, payload]);
           await asyncSockWrite(getdataMsg);
-        } else if (areBuffersEqual(msg.cmd, Buffer.from("ping"))) {
+
+          console.log("+ sent back 'getdata' msg\n");
+        } else if (command === "ping") {
+          console.log("+ received 'ping' msg");
           // send back a 'pong' with the same payload as the 'ping'
           const payload = msg.payload;
           const header = createBtcMsgHeader("pong", payload);
           await asyncSockWrite(Buffer.concat([header, payload]));
+
+          console.log("+ sent back 'pong' msg\n");
         }
 
         break;
@@ -138,7 +145,7 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
   async function readVerAckMsg() {
     const msg = await parseMsgFromRemotePeer();
     console.log("> VERSION ACK MSG:");
-    logBtcMsg(msg);
+    return msg;
   }
 
   async function readVersionMsg() {
@@ -216,6 +223,8 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
         const data: Buffer | null = socket.read(remainingBytes);
 
         if (data) {
+          // if we've data, collect it and check if we're at the
+          // target spot, then resolve and send back only the data we need
           chunks.push(data);
           totalRead += data.length;
           if (totalRead >= n) {
@@ -330,9 +339,13 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     });
   }
 
+  function getCommandString(cmdBuffer: Buffer): string {
+    return cmdBuffer.toString("ascii").replace(/\0/g, "");
+  }
+
   function connToBtcNode() {
     // const ip = "162.120.69.182"; // my local node
-    const ip = "127.0.0.1"; // my local node
+    const ip = "162.120.69.182"; // my local node
     const socket = createConnection({ port: PORT, host: ip }, () => {
       console.log(`+ connected sucessfully to btc node at: ${ip}:${PORT}`);
     });
