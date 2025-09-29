@@ -65,22 +65,60 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
 
   // keep reading msgs from remote peer
   console.log("+ waiting on more msgs from peer...");
-  while (1) {
+  let msg: BtcProtocolMsg | null = null;
+
+  do {
     // keep getting bytes from socket
-    let msg: BtcProtocolMsg;
+    msg = null;
 
     while (1) {
       msg = await parseMsgFromRemotePeer();
-      if (msg.magicBytes.equals(MAGIC_BYTES)) {
+      if (areBuffersEqual(msg.magicBytes, MAGIC_BYTES)) {
         logBtcMsg(msg);
+
+        if (areBuffersEqual(msg.cmd, Buffer.from("inv"))) {
+          // respond to 'inv' cmds
+          // send back 'getdata' msgs to get blocks. use the same payload as that of 'inv'
+          // in order to get EVERYTHING there is.
+          const payload = msg.payload;
+          const header = createBtcMsgHeader("getdata", payload);
+
+          // be careful with the ordering too when combining pieces of data
+          const getdataMsg = Buffer.concat([header, payload]);
+          await asyncSockWrite(getdataMsg);
+        } else if (areBuffersEqual(msg.cmd, Buffer.from("ping"))) {
+          // send back a 'pong' with the same payload as the 'ping'
+          const payload = msg.payload;
+          const header = createBtcMsgHeader("pong", payload);
+          await asyncSockWrite(Buffer.concat([header, payload]));
+        }
+
         break;
       }
     }
-  }
+  } while (1);
 
   // =======
   // HELPERS
   // =======
+
+  function areBuffersEqual(a: Buffer, b: Buffer) {
+    return a.length === b.length && a.compare(b) === 0;
+  }
+
+  function createBtcMsgHeader(cmdStr: string, payload: Buffer) {
+    const cmd = Buffer.alloc(12);
+    cmd.write(cmdStr, "ascii");
+
+    const size = Buffer.alloc(4);
+    size.writeUInt32LE(payload.length);
+
+    const chkSum = doubleSha256(payload);
+
+    // be careful with the ordering too when combining pieces of data
+    const header = Buffer.concat([MAGIC_BYTES, cmd, size, chkSum]);
+    return header;
+  }
 
   async function sendMyVerAckMsg() {
     const msg = buildVersionAckMsg();
@@ -254,24 +292,10 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     return payload;
   }
 
-  function genVersionMsgHdr(payload: Buffer) {
-    const cmd = Buffer.alloc(12);
-    cmd.write("version", "ascii");
-
-    const size = Buffer.alloc(4);
-    size.writeUInt32LE(payload.length);
-
-    const chkSum = doubleSha256(payload);
-
-    // be careful with the ordering too when combining pieces of data
-    const header = Buffer.concat([MAGIC_BYTES, cmd, size, chkSum]);
-    return header;
-  }
-
   function buildVersionMsg() {
     // each msg has a header and a payload.
     const payload = genVersionMsgPayload();
-    const header = genVersionMsgHdr(payload);
+    const header = createBtcMsgHeader("version", payload);
     return Buffer.concat([header, payload]);
   }
 
@@ -280,31 +304,9 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     await asyncSockWrite(versionMsg);
   }
 
-  function genVersionAckMsgHdr(payload: Buffer) {
-    const cmd = Buffer.alloc(12);
-    cmd.write("verack", "ascii");
-
-    const size = Buffer.alloc(4);
-    size.writeUInt32LE(payload.length);
-
-    const chkSum = doubleSha256(payload);
-
-    //     console.log(`
-    // VERSION ACK:
-    // magic bytes: ${magicBytes.toString("hex")},
-    // command: verack,
-    // size: ${size.readUint32LE(0)},
-    // checksum: ${chkSum.toString("hex")},
-    // payload: ${payload.toString("hex")}`);
-
-    // be careful with the ordering too when combining pieces of data
-    const header = Buffer.concat([MAGIC_BYTES, cmd, size, chkSum]);
-    return header;
-  }
-
   function buildVersionAckMsg() {
     const payload = Buffer.alloc(0); // verack msgs lack a payload
-    const header = genVersionAckMsgHdr(payload);
+    const header = createBtcMsgHeader("verack", payload);
     return Buffer.concat([header, payload]);
   }
 
@@ -317,7 +319,7 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
   function connToBtcNode() {
     // const ip = "162.120.69.182"; // my local node
     const ip = "127.0.0.1"; // my local node
-    const socket = createConnection({ port: PORT, host: ip, family: 4 }, () => {
+    const socket = createConnection({ port: PORT, host: ip }, () => {
       console.log(`+ connected sucessfully to btc node at: ${ip}:${PORT}`);
     });
 
