@@ -265,8 +265,8 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
 
     const addrRecv = Buffer.concat([
       remoteServices,
-      // Buffer.from("00000000000000000000ffffa27845b6", "hex"),
-      Buffer.from("00000000000000000000ffff7f000001", "hex"),
+      Buffer.from("00000000000000000000ffff2e13894a", "hex"),
+      // Buffer.from("00000000000000000000ffff7f000001", "hex"),
       remotePort,
     ]);
 
@@ -276,7 +276,11 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     // but most P2P implementations send 26 dummy bytes. The "services" field of the address would
     // also be redundant with the second field of the version message.
 
-    const addrSender = Buffer.alloc(26);
+    const addrSender = Buffer.concat([
+      remoteServices,
+      Buffer.from("00000000000000000000ffff7f000001", "hex"),
+      remotePort,
+    ]);
 
     const userAgent = Buffer.from("00", "hex");
 
@@ -284,7 +288,7 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
     const lastBlockRecvd = Buffer.alloc(4);
     lastBlockRecvd.writeUInt32LE(0);
 
-    const relay = Buffer.from([0x0]);
+    // const relay = Buffer.from([0x0]);
 
     // be careful with the ordering too when combining pieces of data
     const payload = Buffer.concat([
@@ -296,7 +300,7 @@ NOTE: Probably the peer is running a bitcoin core version that does NOT acknowle
       nonce,
       userAgent,
       lastBlockRecvd,
-      relay,
+      // relay,
     ]);
 
     return payload;
