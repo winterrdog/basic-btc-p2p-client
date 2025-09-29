@@ -25,17 +25,17 @@ interface BtcProtocolMsg {
   payload: Buffer;
 }
 
+type Network = "mainnet" | "testnet" | "regtest";
+
+// todo: try out testnet too
+// todo: try out regtest too
+
 async function main() {
+  const CONFIG = createGlobalConfig();
+  const PORT = CONFIG.port[CONFIG.network];
+
   const MAGIC_BYTES = Buffer.alloc(4);
-  MAGIC_BYTES.writeUInt32LE(0xd9b4bef9); // mainnet magic number
-
-  // MAGIC_BYTES.writeUInt32LE(0xDAB5BFFA); // regtest magic number
-  // MAGIC_BYTES.writeUInt32LE(0x0709110b); // testnet magic number
-
-  const PORT = 8333; // mainnet port number
-
-  // const PORT = 18_444; // regtest port number
-  // const PORT = 18_333; // testnet port number
+  MAGIC_BYTES.writeUInt32LE(CONFIG.magicBytes[CONFIG.network]);
 
   const socket = connToBtcNode();
   await waitForSocketReadiness();
@@ -61,7 +61,13 @@ async function main() {
     const verackMsg = await Promise.race([
       readVerAckMsg(),
       new Promise<BtcProtocolMsg>((_, reject) => {
-        setTimeout(() => reject(new Error("verack timeout")), 5_000);
+        setTimeout(
+          () =>
+            reject(
+              new Error(`verack read timeout (${CONFIG.timeouts.verack} ms)`)
+            ),
+          CONFIG.timeouts.verack
+        );
       }),
     ]);
 
@@ -255,11 +261,12 @@ async function main() {
   }
 
   function genVersionMsgPayload() {
+    const { protocol } = CONFIG;
     const version = Buffer.alloc(4);
-    version.writeInt32LE(70014); // little-endian
+    version.writeInt32LE(protocol.version);
 
     const services = Buffer.alloc(8);
-    services.writeBigUInt64LE(BigInt(0));
+    services.writeBigUInt64LE(protocol.services);
 
     const time = Buffer.alloc(8);
     const secsEpoch = Math.floor(Date.now() / 1_000);
@@ -274,8 +281,7 @@ async function main() {
 
     const addrRecv = Buffer.concat([
       remoteServices,
-      Buffer.from("00000000000000000000ffff2e13894a", "hex"),
-      // Buffer.from("00000000000000000000ffff7f000001", "hex"),
+      Buffer.from(CONFIG.remote.ipv6Hex, "hex"),
       remotePort,
     ]);
 
@@ -291,13 +297,13 @@ async function main() {
       remotePort,
     ]);
 
-    const userAgent = Buffer.from("00", "hex");
+    const userAgent = Buffer.from(protocol.userAgent, "hex");
 
     const nonce = randomBytes(8);
     const lastBlockRecvd = Buffer.alloc(4);
     lastBlockRecvd.writeUInt32LE(0);
 
-    // const relay = Buffer.from([0x0]);
+    const relay = Buffer.from([protocol.relay ? 0x1 : 0x0]);
 
     // be careful with the ordering too when combining pieces of data
     const payload = Buffer.concat([
@@ -309,7 +315,7 @@ async function main() {
       nonce,
       userAgent,
       lastBlockRecvd,
-      // relay,
+      relay,
     ]);
 
     return payload;
@@ -344,10 +350,11 @@ async function main() {
   }
 
   function connToBtcNode() {
-    // const ip = "162.120.69.182"; // my local node
-    const ip = "162.120.69.182"; // my local node
+    const ip = CONFIG.remote.ip;
     const socket = createConnection({ port: PORT, host: ip }, () => {
-      console.log(`+ connected sucessfully to btc node at: ${ip}:${PORT}`);
+      console.log(
+        `+ connected sucessfully to btc node at: ${ip}:${PORT} (${CONFIG.network})`
+      );
     });
 
     socket.on("error", (err) => {
@@ -364,5 +371,51 @@ async function main() {
     return new Promise<void>(function (resolve) {
       socket.once("ready", () => resolve());
     });
+  }
+
+  function createGlobalConfig() {
+    return {
+      // netwok config
+      network: "mainnet" as Network,
+
+      // magic bytes
+      magicBytes: {
+        mainnet: 0xd9b4bef9,
+        testnet: 0x0709110b,
+        regtest: 0xdab5bffa,
+      },
+
+      // port numbers
+      port: {
+        mainnet: 8_333,
+        testnet: 18_333,
+        regtest: 18_444,
+      },
+
+      // remote node config
+      remote: {
+        ip: "162.120.69.182",
+        ipv6Hex: "00000000000000000000ffff2e13894a", // ipv4-mapped ipv6 address
+      },
+
+      // local node config
+      local: {
+        ipv6Hex: "00000000000000000000ffff7f000001", // ipv4-mapped ipv6 address for 'localhost'
+      },
+
+      // protocol config
+      protocol: {
+        version: 70014,
+        services: BigInt(0),
+        userAgent: "00",
+        relay: false,
+      },
+
+      // timeouts
+      timeouts: {
+        verack: 5_000, // ms
+        connectionTimeout: 10_000, // ms
+      },
+    };
   }
 }
