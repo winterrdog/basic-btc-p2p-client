@@ -211,18 +211,16 @@ async function main() {
         socket.removeListener("close", onClose);
       }
       function onError(err: Error) {
-        if (!isResolved) {
-          isResolved = true;
-          cleanup();
-          reject(err);
-        }
+        if (isResolved) return;
+        isResolved = true;
+        cleanup();
+        reject(err);
       }
       function onClose() {
-        if (!isResolved) {
-          isResolved = true;
-          cleanup();
-          reject(new Error("Socket closed while reading"));
-        }
+        if (isResolved) return;
+        isResolved = true;
+        cleanup();
+        reject(new Error("Socket closed while reading"));
       }
       function tryRead() {
         const remainingBytes = n - totalRead;
@@ -233,13 +231,11 @@ async function main() {
           // target spot, then resolve and send back only the data we need
           chunks.push(data);
           totalRead += data.length;
-          if (totalRead >= n) {
-            if (!isResolved) {
-              isResolved = true;
-              cleanup();
-              const result = Buffer.concat(chunks);
-              return resolve(result.subarray(0, n));
-            }
+          if (totalRead >= n && !isResolved) {
+            isResolved = true;
+            cleanup();
+            const result = Buffer.concat(chunks);
+            return resolve(result.subarray(0, n));
           }
         }
 
