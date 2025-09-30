@@ -6,7 +6,7 @@ OKaaay! oh...! but it tries to handle '`ping`' and '`inv`' only.
 
 I created this project for learning purposes, so don't expect too much from it. I believe that if _i cannot create something, i cannot understand it too_ (inspired by Richard Feynman).
 
-Make sure your node version has **stable TypeScript support** before running the code. That is any Node.js version >= v23.6.0 or any latest LTS release.
+Make sure your Node.js version has **stable TypeScript support** before running this code. That is any Node.js version >= v23.6.0 or any latest LTS release.
 
 ## features
 
