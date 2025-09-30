@@ -13,7 +13,7 @@ I created this project for learning purposes, so don't expect too much from it. 
 - Listens for all incoming messages directed to it
 - Handles '`ping`' and '`inv`' messages
 - Replies to '`inv`' messages with a '`getdata`' message in which it requests for everything in remote peer's inventory
-- Logs all incoming messages to the console
+- Logs all incoming messages to the console (kinda silly, but yeah!)
 - Written in TypeScript
 - Zero dependencies.
 
